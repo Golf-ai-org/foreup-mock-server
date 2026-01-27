@@ -24,7 +24,8 @@ function generateMockTeeTimes(date, courseId, teesheetId) {
     for (let minute = 0; minute < 60; minute += 10) {
       const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
       const availableSpots = Math.floor(Math.random() * 4) + 1; // 1-4 spots
-      const basePrice = hour < 12 ? 6500 : (hour < 15 ? 5500 : 4500); // Morning/afternoon/twilight
+      // ForeUp API returns prices in DOLLARS (not cents)
+      const basePrice = hour < 12 ? 65 : (hour < 15 ? 55 : 45); // Morning/afternoon/twilight in dollars
       
       times.push({
         id: `slot_${courseId}_${date}_${hour}${String(minute).padStart(2, '0')}`,
@@ -39,9 +40,9 @@ function generateMockTeeTimes(date, courseId, teesheetId) {
           teeSheetSideId: 4979,
           scheduleSideId: 4979,
           pricing: {
-            greenFee: basePrice + Math.floor(Math.random() * 1000),
-            cartFee: 2000,
-            total: basePrice + 2000 + Math.floor(Math.random() * 1000),
+            greenFee: basePrice + Math.floor(Math.random() * 10), // $45-75 range
+            cartFee: 20, // $20 cart fee
+            total: basePrice + 20 + Math.floor(Math.random() * 10),
           },
           bookingClassId: 1,
           bookingClassName: 'Public',
