@@ -178,97 +178,100 @@ let bookingIdCounter = 1000;
 let customerIdCounter = 1000;
 
 // ============================================================================
-// Deterministic test customers (seeded on boot)
+// Deterministic test customers (seeded from JSON fixture)
 // ============================================================================
 // These exist so that findteetimes /api/customers (foreup provider path) can
 // return contacts + bookings for known phone numbers — required for the
 // concierge conversation-init webhook to surface booking_sentence /
 // booking_count dynamic variables when an inbound caller's phone matches.
 //
-// We seed phones the agent-tool-calls.test.ts uses so booking-aware greeting
-// tests can run against the foreup demo course agent (which we own end-to-end
-// via this mock).
-function seedTestCustomers() {
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const dayAfter = new Date(Date.now() + 48 * 60 * 60 * 1000);
-  const fmt = (d, h) => {
-    const iso = new Date(d);
-    iso.setHours(h, 0, 0, 0);
-    return iso.toISOString();
-  };
+// Seed source resolution order (first match wins):
+//   1. SEED_FILE env var (absolute path)
+//   2. ./seeds/<SEED_FIXTURE>.json (e.g. SEED_FIXTURE=multi-course)
+//   3. ./seeds/default.json
+//
+// Tests can also swap seeds at runtime via POST /__test__/reset-seeds (see
+// the admin route below). Useful for parameterized e2e suites that need
+// scenario-specific data (custom prompts, voice overrides, etc.) without
+// bouncing the mock between tests.
+import { readFileSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-  const seeds = [
-    {
-      id: 'cust_seed_1001',
-      attributes: {
-        firstName: 'Bob',
-        lastName: 'Mock',
-        email: 'bob.mock@example.com',
-        phone: '+15551234567',
-      },
-      bookings: [
-        {
-          id: 'TTID_seed_2001',
-          confirmationCode: 'CONF-BOB-1',
-          courseName: 'ForeUp Demo Course',
-          teeTime: fmt(tomorrow, 10),
-          players: 2,
-          holes: 18,
-          startSide: 'F1',
-          status: 'confirmed',
-          canCancel: true,
-        },
-      ],
-    },
-    {
-      id: 'cust_seed_1002',
-      attributes: {
-        firstName: 'Alice',
-        lastName: 'Mock',
-        email: 'alice.mock@example.com',
-        phone: '+15559999999',
-      },
-      bookings: [
-        {
-          id: 'TTID_seed_2002',
-          confirmationCode: 'CONF-ALICE-1',
-          courseName: 'ForeUp Demo Course',
-          teeTime: fmt(tomorrow, 14),
-          players: 4,
-          holes: 18,
-          startSide: 'F1',
-          status: 'confirmed',
-          canCancel: true,
-        },
-        {
-          id: 'TTID_seed_2003',
-          confirmationCode: 'CONF-ALICE-2',
-          courseName: 'ForeUp Demo Course',
-          teeTime: fmt(dayAfter, 9),
-          players: 2,
-          holes: 9,
-          startSide: 'F10',
-          status: 'confirmed',
-          canCancel: true,
-        },
-      ],
-    },
-  ];
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-  for (const s of seeds) {
-    customers.set(s.id, { id: s.id, type: 'customer', attributes: s.attributes });
-    for (const b of s.bookings) {
-      bookings.set(b.id, {
-        id: b.id,
+function resolveSeedPath() {
+  if (process.env.SEED_FILE) return process.env.SEED_FILE;
+  const fixture = process.env.SEED_FIXTURE || 'default';
+  return path.join(__dirname, 'seeds', `${fixture}.json`);
+}
+
+function loadSeedDocument(seedPath) {
+  const raw = readFileSync(seedPath, 'utf8');
+  return JSON.parse(raw);
+}
+
+// Convert a seed document into in-memory customers + bookings Maps.
+// teeTimeOffsetHours becomes an actual ISO-8601 timestamp at load time so
+// fixtures stay fresh as time passes.
+let seedBookingIdCounter = 2000;
+function applySeedDocument(doc) {
+  customers.clear();
+  bookings.clear();
+  seedBookingIdCounter = 2000;
+
+  const seedCustomers = doc.customers || [];
+  let totalBookings = 0;
+  for (const c of seedCustomers) {
+    customers.set(c.id, {
+      id: c.id,
+      type: 'customer',
+      attributes: {
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: c.email,
+        phone: c.phone,
+      },
+    });
+    for (const b of c.bookings || []) {
+      const bookingId = `TTID_seed_${++seedBookingIdCounter}`;
+      const teeTime = new Date(
+        Date.now() + Number(b.teeTimeOffsetHours) * 60 * 60 * 1000,
+      ).toISOString();
+      bookings.set(bookingId, {
+        id: bookingId,
         type: 'booking',
-        customerId: s.id,
-        attributes: b,
+        customerId: c.id,
+        attributes: {
+          id: bookingId,
+          confirmationCode: b.confirmationCode,
+          courseName: b.courseName,
+          teeTime,
+          players: b.players,
+          holes: b.holes,
+          startSide: b.startSide,
+          status: b.status,
+          canCancel: b.canCancel,
+        },
       });
+      totalBookings++;
     }
   }
-  console.log(
-    `[MOCK] Seeded ${seeds.length} test customers + ${seeds.reduce((n, s) => n + s.bookings.length, 0)} bookings`,
-  );
+  return { customerCount: seedCustomers.length, bookingCount: totalBookings };
+}
+
+function seedTestCustomers() {
+  const seedPath = resolveSeedPath();
+  try {
+    const doc = loadSeedDocument(seedPath);
+    const { customerCount, bookingCount } = applySeedDocument(doc);
+    console.log(
+      `[MOCK] Loaded seed fixture from ${seedPath}: ${customerCount} customers + ${bookingCount} bookings`,
+    );
+  } catch (err) {
+    console.error(`[MOCK] Failed to load seed fixture from ${seedPath}:`, err.message);
+    console.error('[MOCK] Continuing with empty customer/booking maps.');
+  }
 }
 seedTestCustomers();
 
@@ -511,6 +514,43 @@ app.post('/courses/:courseId/customers', checkAuth, (req, res) => {
   
   customers.set(customerId, customer);
   res.status(201).json({ data: customer });
+});
+
+// ============================================================================
+// Test admin — runtime seed swap (for parameterized e2e suites)
+// ============================================================================
+// POST /__test__/reset-seeds with body:
+//   { "fixture": "multi-course" }   → load ./seeds/multi-course.json
+//   { "document": {...} }           → load the supplied seed document inline
+//   {}                              → reload the current SEED_FILE / default
+//
+// No auth on this route by design: the mock is itself a test-only service,
+// not used by real customers, deployed only on the dev Replit. Adding a
+// shared-secret would force every test to thread it; not worth the friction.
+// Do NOT publish this server to a domain real ForeUp customers reach.
+app.post('/__test__/reset-seeds', (req, res) => {
+  const { fixture, document } = req.body || {};
+  try {
+    let doc;
+    let source;
+    if (document) {
+      doc = document;
+      source = 'inline';
+    } else if (fixture) {
+      const fixturePath = path.join(__dirname, 'seeds', `${fixture}.json`);
+      doc = loadSeedDocument(fixturePath);
+      source = fixturePath;
+    } else {
+      doc = loadSeedDocument(resolveSeedPath());
+      source = resolveSeedPath();
+    }
+    const result = applySeedDocument(doc);
+    console.log(`[MOCK] reset-seeds ← ${source}: ${result.customerCount} customers + ${result.bookingCount} bookings`);
+    res.json({ ok: true, source, ...result });
+  } catch (err) {
+    console.error('[MOCK] reset-seeds failed:', err.message);
+    res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 // Health check
