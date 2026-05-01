@@ -1,0 +1,53 @@
+{
+  "_description": "Default seed customers — used when SEED_FILE env is unset. Loaded on boot. Tee times are computed at load time from teeTimeOffsetHours so fixtures don't go stale.",
+  "customers": [
+    {
+      "id": "cust_seed_1001",
+      "firstName": "Bob",
+      "lastName": "Mock",
+      "email": "bob.mock@example.com",
+      "phone": "+15551234567",
+      "bookings": [
+        {
+          "confirmationCode": "CONF-BOB-1",
+          "courseName": "ForeUp Demo Course",
+          "teeTimeOffsetHours": 24,
+          "players": 2,
+          "holes": 18,
+          "startSide": "F1",
+          "status": "confirmed",
+          "canCancel": true
+        }
+      ]
+    },
+    {
+      "id": "cust_seed_1002",
+      "firstName": "Alice",
+      "lastName": "Mock",
+      "email": "alice.mock@example.com",
+      "phone": "+15559999999",
+      "bookings": [
+        {
+          "confirmationCode": "CONF-ALICE-1",
+          "courseName": "ForeUp Demo Course",
+          "teeTimeOffsetHours": 28,
+          "players": 4,
+          "holes": 18,
+          "startSide": "F1",
+          "status": "confirmed",
+          "canCancel": true
+        },
+        {
+          "confirmationCode": "CONF-ALICE-2",
+          "courseName": "ForeUp Demo Course",
+          "teeTimeOffsetHours": 47,
+          "players": 2,
+          "holes": 9,
+          "startSide": "F10",
+          "status": "confirmed",
+          "canCancel": true
+        }
+      ]
+    }
+  ]
+}
