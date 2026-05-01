@@ -177,6 +177,111 @@ let cartIdCounter = 1000;
 let bookingIdCounter = 1000;
 let customerIdCounter = 1000;
 
+// ============================================================================
+// Deterministic test customers (seeded on boot)
+// ============================================================================
+// These exist so that findteetimes /api/customers (foreup provider path) can
+// return contacts + bookings for known phone numbers — required for the
+// concierge conversation-init webhook to surface booking_sentence /
+// booking_count dynamic variables when an inbound caller's phone matches.
+//
+// We seed phones the agent-tool-calls.test.ts uses so booking-aware greeting
+// tests can run against the foreup demo course agent (which we own end-to-end
+// via this mock).
+function seedTestCustomers() {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const dayAfter = new Date(Date.now() + 48 * 60 * 60 * 1000);
+  const fmt = (d, h) => {
+    const iso = new Date(d);
+    iso.setHours(h, 0, 0, 0);
+    return iso.toISOString();
+  };
+
+  const seeds = [
+    {
+      id: 'cust_seed_1001',
+      attributes: {
+        firstName: 'Bob',
+        lastName: 'Mock',
+        email: 'bob.mock@example.com',
+        phone: '+15551234567',
+      },
+      bookings: [
+        {
+          id: 'TTID_seed_2001',
+          confirmationCode: 'CONF-BOB-1',
+          courseName: 'ForeUp Demo Course',
+          teeTime: fmt(tomorrow, 10),
+          players: 2,
+          holes: 18,
+          startSide: 'F1',
+          status: 'BOOKED',
+          canCancel: true,
+        },
+      ],
+    },
+    {
+      id: 'cust_seed_1002',
+      attributes: {
+        firstName: 'Alice',
+        lastName: 'Mock',
+        email: 'alice.mock@example.com',
+        phone: '+15559999999',
+      },
+      bookings: [
+        {
+          id: 'TTID_seed_2002',
+          confirmationCode: 'CONF-ALICE-1',
+          courseName: 'ForeUp Demo Course',
+          teeTime: fmt(tomorrow, 14),
+          players: 4,
+          holes: 18,
+          startSide: 'F1',
+          status: 'BOOKED',
+          canCancel: true,
+        },
+        {
+          id: 'TTID_seed_2003',
+          confirmationCode: 'CONF-ALICE-2',
+          courseName: 'ForeUp Demo Course',
+          teeTime: fmt(dayAfter, 9),
+          players: 2,
+          holes: 9,
+          startSide: 'F10',
+          status: 'BOOKED',
+          canCancel: true,
+        },
+      ],
+    },
+  ];
+
+  for (const s of seeds) {
+    customers.set(s.id, { id: s.id, type: 'customer', attributes: s.attributes });
+    for (const b of s.bookings) {
+      bookings.set(b.id, {
+        id: b.id,
+        type: 'booking',
+        customerId: s.id,
+        attributes: b,
+      });
+    }
+  }
+  console.log(
+    `[MOCK] Seeded ${seeds.length} test customers + ${seeds.reduce((n, s) => n + s.bookings.length, 0)} bookings`,
+  );
+}
+seedTestCustomers();
+
+// Normalize a phone string to digits-only for matching (ignores formatting).
+// Strips a leading US country code so "+15551234567" and "5551234567" match.
+function phoneDigitsOnly(s) {
+  const digits = String(s || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
 // POST /courses/:courseId/carts - Create cart
 app.post('/courses/:courseId/carts', checkAuth, (req, res) => {
   const { courseId } = req.params;
@@ -334,28 +439,63 @@ app.delete('/courses/:courseId/teesheets/:teesheetId/bookings/:bookingId', check
 });
 
 // GET /courses/:courseId/customers - Search customers
+//
+// ForeUp filter syntax: query params are `email=eq:foo@bar.com`, `phone=eq:+15551234567`,
+// `firstName=eq:Bob`, `lastName=eq:Mock`. Multiple filters AND together.
+//
+// Each customer record optionally includes a `bookings` array (active +
+// upcoming) so callers don't need a follow-up round trip — same shape used by
+// providers like ProShopTeeTimes ContactSearch in findteetimes' unified layer.
 app.get('/courses/:courseId/customers', checkAuth, (req, res) => {
-  const { email } = req.query;
-  
-  if (email) {
-    const emailValue = email.replace('eq:', '');
-    res.json({
-      data: [
-        {
-          id: `cust_${customerIdCounter}`,
-          type: 'customer',
-          attributes: {
-            email: emailValue,
-            firstName: 'Demo',
-            lastName: 'User',
-            phone: '555-123-4567',
-          },
-        },
-      ],
-    });
-  } else {
-    res.json({ data: [] });
+  const stripEq = (v) => (typeof v === 'string' ? v.replace(/^eq:/, '') : v);
+  const filters = {
+    email: stripEq(req.query.email)?.toLowerCase(),
+    phone: req.query.phone ? phoneDigitsOnly(stripEq(req.query.phone)) : undefined,
+    firstName: stripEq(req.query.firstName)?.toLowerCase(),
+    lastName: stripEq(req.query.lastName)?.toLowerCase(),
+  };
+
+  const hasAnyFilter = Object.values(filters).some((v) => v !== undefined && v !== '');
+  if (!hasAnyFilter) {
+    return res.json({ data: [] });
   }
+
+  // Match against the seeded + runtime customers Map. Phone matching is
+  // digits-only so callers can pass +15551234567, 555-123-4567, etc.
+  const matches = [];
+  for (const c of customers.values()) {
+    const a = c.attributes || {};
+    if (filters.email && a.email?.toLowerCase() !== filters.email) continue;
+    if (filters.phone && phoneDigitsOnly(a.phone) !== filters.phone) continue;
+    if (filters.firstName && a.firstName?.toLowerCase() !== filters.firstName) continue;
+    if (filters.lastName && a.lastName?.toLowerCase() !== filters.lastName) continue;
+    matches.push(c);
+  }
+
+  // Attach this customer's bookings inline (active/upcoming, sorted by time).
+  const enriched = matches.map((c) => {
+    const customerBookings = [];
+    for (const b of bookings.values()) {
+      if (b.customerId === c.id) {
+        customerBookings.push(b.attributes);
+      }
+    }
+    customerBookings.sort((a, b) =>
+      String(a.teeTime || '').localeCompare(String(b.teeTime || '')),
+    );
+    return {
+      ...c,
+      attributes: {
+        ...c.attributes,
+        bookings: customerBookings,
+      },
+    };
+  });
+
+  console.log(
+    `[MOCK] customer search: filters=${JSON.stringify(filters)} → ${enriched.length} match(es)`,
+  );
+  res.json({ data: enriched });
 });
 
 // POST /courses/:courseId/customers - Create customer
