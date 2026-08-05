@@ -1,6 +1,11 @@
 # ForeUp API Mock Server
 
-Mock server for ForeUp API demo/testing. Returns realistic tee time data.
+Mock server for ForeUp API demo/testing. The provider-facing response contract
+follows ForeUp's published [API Blueprint](https://foreup.docs.apiary.io/).
+
+Provider prices are returned as dollar-valued numbers in the blueprint's flat
+`greenFee` and `cartFee` attributes. Conversion to integer cents belongs to the
+FindTeeTimes public API boundary.
 
 ## Deploy to Replit
 
@@ -20,6 +25,7 @@ railway up
 
 ```bash
 npm install
+npm test
 npm start
 # Server runs on http://localhost:3099
 ```
