@@ -2,50 +2,52 @@
  * ForeUp API Mock Server
  * 
  * Deployable mock server for ForeUp API demo/testing
- * Matches ForeUp API v2 structure
+ * Matches ForeUp's published API Blueprint contract.
+ * https://foreup.docs.apiary.io/
  */
 
 import express from 'express';
 
-const app = express();
+export const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3099;
 
 const MOCK_JWT_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.MOCK_TOKEN_FOR_DEMO';
 
-// Generate mock tee times for a date
-function generateMockTeeTimes(date, courseId, teesheetId) {
+// Generate deterministic mock tee times for a date. Provider prices are dollar
+// values here; FindTeeTimes owns conversion to integer cents at its public API.
+export function generateMockTeeTimes(date, courseId, teesheetId) {
   const times = [];
-  const baseDate = new Date(date);
   
   // Generate slots from 6am to 6pm every 10 minutes
   for (let hour = 6; hour <= 18; hour++) {
     for (let minute = 0; minute < 60; minute += 10) {
       const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
-      const availableSpots = Math.floor(Math.random() * 4) + 1; // 1-4 spots
-      // ForeUp API returns prices in DOLLARS (not cents)
-      const basePrice = hour < 12 ? 65 : (hour < 15 ? 55 : 45); // Morning/afternoon/twilight in dollars
+      const greenFee = hour < 12 ? 68 : hour < 15 ? 58 : 48;
       
       times.push({
-        id: `slot_${courseId}_${date}_${hour}${String(minute).padStart(2, '0')}`,
-        type: 'teetime',
+        id: `slot_${courseId}_${date}_${String(hour).padStart(2, '0')}${String(minute).padStart(2, '0')}`,
+        type: 'tee_time_slot',
         attributes: {
-          time: `${date}T${time}`,
-          availableSpots,
-          minPlayers: 1,
-          maxPlayers: 4,
-          allowedGroupSizes: [1, 2, 3, 4],
+          time: `${date}T${time}-0700`,
           holes: 18,
-          teeSheetSideId: 4979,
-          scheduleSideId: 4979,
-          pricing: {
-            greenFee: basePrice + Math.floor(Math.random() * 10), // $45-75 range
-            cartFee: 20, // $20 cart fee
-            total: basePrice + 20 + Math.floor(Math.random() * 10),
-          },
+          scheduleName: 'ForeUp Demo Golf Course',
+          scheduleId: String(teesheetId),
           bookingClassId: 1,
-          bookingClassName: 'Public',
+          availableSpots: 4,
+          greenFee,
+          cartFee: 20,
+          rateType: 'both',
+          greeFeeTax: 0,
+          cartFeeTax: 0,
+          hasSpecial: false,
+          specialDiscountPercentage: 0,
+          scheduleSideId: 4979,
+          scheduleSideName: 'Front',
+          reroundScheduleSideId: 4980,
+          reroundScheduleSideName: 'Back',
+          allowedGroupSizes: [1, 2, 3, 4],
         },
       });
     }
@@ -573,6 +575,10 @@ app.get('/', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`ForeUp Mock Server running on port ${PORT}`);
-});
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  app.listen(PORT, () => {
+    console.log(`ForeUp Mock Server running on port ${PORT}`);
+  });
+}
