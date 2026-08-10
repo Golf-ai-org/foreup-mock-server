@@ -7,25 +7,11 @@ Provider prices are returned as dollar-valued numbers in the blueprint's flat
 `greenFee` and `cartFee` attributes. Conversion to integer cents belongs to the
 FindTeeTimes public API boundary.
 
-## Configuration
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `PORT` | `3099` | Listen port |
-| `MOCK_TIMEZONE` | `America/Los_Angeles` | IANA zone used to stamp the ISO-8601 offset on `time` |
-
-**Set `MOCK_TIMEZONE` to the zone of the demo course this deployment backs.**
-The blueprint requires an offset on `time`, and consumers parse the instant then
-render it in the location's own timezone — so a slot stamped `06:00-0700` shows
-up as 11:00 PM for an `Australia/Sydney` location. The offset is resolved per
-date, so DST is handled rather than frozen.
-
 ## Deploy to Replit
 
 1. Create new Replit (Node.js)
 2. Upload `server.js` and `package.json`
-3. Set `MOCK_TIMEZONE` if the demo course is not US Pacific
-4. Click Run
+3. Click Run
 
 ## Deploy to Railway
 

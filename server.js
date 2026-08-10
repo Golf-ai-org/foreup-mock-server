@@ -15,51 +15,22 @@ const PORT = process.env.PORT || 3099;
 
 const MOCK_JWT_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.MOCK_TOKEN_FOR_DEMO';
 
-// The blueprint requires an ISO-8601 offset on `time`. Which offset matters:
-// consumers parse the instant and render it in the location's timezone, so a
-// hardcoded US offset pushes a 6am slot to 11pm for an Australian location.
-// Deployments back a specific demo course — set MOCK_TIMEZONE to its zone.
-const MOCK_TIMEZONE = process.env.MOCK_TIMEZONE || 'America/Los_Angeles';
-
-// Resolve an IANA zone to its ±HHMM offset on a given date, so DST is handled
-// rather than frozen. Intl avoids taking a dependency in a mock server.
-export function resolveUtcOffset(date, timeZone = MOCK_TIMEZONE) {
-  const reference = new Date(`${date}T12:00:00Z`);
-
-  let formatted;
-  try {
-    formatted = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
-      .formatToParts(reference)
-      .find((part) => part.type === 'timeZoneName')?.value;
-  } catch {
-    // Intl throws on an unknown zone. A mock server should keep serving a
-    // valid blueprint shape rather than 500 on a misconfigured deployment.
-    console.warn(`[MOCK] Unknown MOCK_TIMEZONE "${timeZone}" — falling back to UTC`);
-    return '+0000';
-  }
-
-  const match = formatted?.match(/GMT([+-])(\d{2}):(\d{2})/);
-  // "GMT" with no suffix is how Intl renders a zero offset.
-  return match ? `${match[1]}${match[2]}${match[3]}` : '+0000';
-}
-
 // Generate deterministic mock tee times for a date. Provider prices are dollar
 // values here; FindTeeTimes owns conversion to integer cents at its public API.
 export function generateMockTeeTimes(date, courseId, teesheetId) {
   const times = [];
-  const utcOffset = resolveUtcOffset(date);
-
+  
   // Generate slots from 6am to 6pm every 10 minutes
   for (let hour = 6; hour <= 18; hour++) {
     for (let minute = 0; minute < 60; minute += 10) {
       const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
       const greenFee = hour < 12 ? 68 : hour < 15 ? 58 : 48;
-
+      
       times.push({
         id: `slot_${courseId}_${date}_${String(hour).padStart(2, '0')}${String(minute).padStart(2, '0')}`,
         type: 'tee_time_slot',
         attributes: {
-          time: `${date}T${time}${utcOffset}`,
+          time: `${date}T${time}-0700`,
           holes: 18,
           scheduleName: 'ForeUp Demo Golf Course',
           scheduleId: String(teesheetId),
